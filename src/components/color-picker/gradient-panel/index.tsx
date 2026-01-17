@@ -9,7 +9,7 @@ import {
   TouchEvent
 } from "react";
 
-import Markers from "./markers";
+import Markers from "./Markers";
 import { css } from "@emotion/react";
 import { getGradient } from "../utils";
 import { arraysEqual, shallowEqual } from "../helper";
@@ -299,9 +299,8 @@ const GradientPanel: FC<IPropsPanel> = ({
         >
           <div
             style={{
-              transform: `rotate(${
-                typeof modifier === "number" ? `${modifier - 90}deg` : modifier
-              })`
+              transform: `rotate(${typeof modifier === "number" ? `${modifier - 90}deg` : modifier
+                })`
             }}
           />
         </div>
