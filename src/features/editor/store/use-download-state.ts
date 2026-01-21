@@ -106,12 +106,36 @@ export const useDownloadState = create<DownloadState>((set, get) => ({
               statusMessage: `Downloading ${segment.type}: ${segment.name || segment.id}...`
             });
 
-            const response = await fetch(segment.sourceUrl);
-            if (response.ok) {
-              const blob = await response.blob();
+            let blob: Blob | null = null;
+            const url = segment.sourceUrl;
+
+            // Check if it's a blob URL or external URL
+            if (url.startsWith("blob:")) {
+              // Blob URLs can be fetched directly
+              const response = await fetch(url);
+              if (response.ok) {
+                blob = await response.blob();
+              }
+            } else if (url.startsWith("http://") || url.startsWith("https://")) {
+              // External URLs need to go through proxy to avoid CORS issues
+              console.log(`Using proxy for external URL: ${url}`);
+              const proxyResponse = await fetch("/api/media-proxy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url })
+              });
+              if (proxyResponse.ok) {
+                blob = await proxyResponse.blob();
+              } else {
+                console.warn(`Proxy failed for ${url}: ${proxyResponse.status}`);
+              }
+            }
+
+            if (blob) {
               mediaBlobs[segment.id] = blob;
+              console.log(`Downloaded ${segment.id}: ${blob.size} bytes`);
             } else {
-              console.warn(`Failed to download: ${segment.sourceUrl}`);
+              console.warn(`Failed to download: ${url}`);
             }
           } catch (err) {
             console.warn(`Error downloading ${segment.id}:`, err);

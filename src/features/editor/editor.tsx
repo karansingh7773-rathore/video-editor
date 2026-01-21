@@ -142,7 +142,7 @@ const Editor = ({ tempId, id }: { tempId?: string; id?: string }) => {
 				stateManager={stateManager}
 				setProjectName={setProjectName}
 			/>
-			<div className="flex flex-1">
+			<div className="flex flex-1 overflow-hidden">
 				{isLargeScreen && (
 					<div className="bg-muted  flex flex-none border-r border-border/80 h-[calc(100vh-44px)]">
 						<MenuList />
@@ -169,6 +169,9 @@ const Editor = ({ tempId, id }: { tempId?: string; id?: string }) => {
 							</div>
 						</div>
 					</ResizablePanel>
+					{/* Mobile menu bar - now positioned above timeline for better reach */}
+					{!isLargeScreen && !trackItem && loaded && <MenuListHorizontal />}
+					{!isLargeScreen && trackItem && <ControlItemHorizontal />}
 					<ResizableHandle />
 					<ResizablePanel
 						className="min-h-[50px]"
@@ -178,8 +181,6 @@ const Editor = ({ tempId, id }: { tempId?: string; id?: string }) => {
 					>
 						{playerRef && <Timeline stateManager={stateManager} />}
 					</ResizablePanel>
-					{!isLargeScreen && !trackItem && loaded && <MenuListHorizontal />}
-					{!isLargeScreen && trackItem && <ControlItemHorizontal />}
 				</ResizablePanelGroup>
 				<ControlItem />
 			</div>
