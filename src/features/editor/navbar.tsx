@@ -137,6 +137,34 @@ export default function Navbar({
             className="flex h-7 gap-1 border border-border"
             variant="outline"
             size={isMediumScreen ? "sm" : "icon"}
+            onClick={async () => {
+              const shareData = {
+                title: projectName || "My Video Project",
+                text: "Check out my video created with Video Editor!",
+                url: window.location.href
+              };
+
+              try {
+                if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+                  await navigator.share(shareData);
+                } else {
+                  // Fallback: copy URL to clipboard
+                  await navigator.clipboard.writeText(window.location.href);
+                  alert("Link copied to clipboard!");
+                }
+              } catch (err) {
+                if ((err as Error).name !== "AbortError") {
+                  // User didn't cancel, show error
+                  console.error("Share failed:", err);
+                  try {
+                    await navigator.clipboard.writeText(window.location.href);
+                    alert("Link copied to clipboard!");
+                  } catch {
+                    alert("Could not share or copy link");
+                  }
+                }
+              }
+            }}
           >
             <ShareIcon width={18} />{" "}
             <span className="hidden md:block">Share</span>
