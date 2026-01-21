@@ -56,7 +56,7 @@ export default function Navbar({
     dispatch(HISTORY_REDO);
   };
 
-  const handleCreateProject = async () => {};
+  const handleCreateProject = async () => { };
 
   // Create a debounced function for setting the project name
   const debouncedSetProjectName = useCallback(
@@ -151,8 +151,9 @@ export default function Navbar({
 
 const DownloadPopover = ({ stateManager }: { stateManager: StateManager }) => {
   const isMediumScreen = useIsMediumScreen();
-  const { actions, exportType } = useDownloadState();
+  const { actions, exportType, exportQuality } = useDownloadState();
   const [isExportTypeOpen, setIsExportTypeOpen] = useState(false);
+  const [isQualityOpen, setIsQualityOpen] = useState(false);
   const [open, setOpen] = useState(false);
 
   const handleExport = () => {
@@ -165,6 +166,12 @@ const DownloadPopover = ({ stateManager }: { stateManager: StateManager }) => {
 
     actions.setState({ payload: data });
     actions.startExport();
+  };
+
+  const qualityLabels = {
+    "720p": "720p (HD)",
+    "1080p": "1080p (Full HD)",
+    "4k": "4K (Ultra HD)"
   };
 
   return (
@@ -184,6 +191,7 @@ const DownloadPopover = ({ stateManager }: { stateManager: StateManager }) => {
       >
         <Label>Export settings</Label>
 
+        {/* Export Type Selector */}
         <Popover open={isExportTypeOpen} onOpenChange={setIsExportTypeOpen}>
           <PopoverTrigger asChild>
             <Button className="w-full justify-between" variant="outline">
@@ -212,6 +220,47 @@ const DownloadPopover = ({ stateManager }: { stateManager: StateManager }) => {
             </div>
           </PopoverContent>
         </Popover>
+
+        {/* Quality Selector (only for MP4) */}
+        {exportType === "mp4" && (
+          <Popover open={isQualityOpen} onOpenChange={setIsQualityOpen}>
+            <PopoverTrigger asChild>
+              <Button className="w-full justify-between" variant="outline">
+                <div>{qualityLabels[exportQuality]}</div>
+                <ChevronDown width={16} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="bg-background z-[251] w-[--radix-popover-trigger-width] px-2 py-2">
+              <div
+                className="flex h-7 items-center rounded-sm px-3 text-sm hover:cursor-pointer hover:bg-zinc-800"
+                onClick={() => {
+                  actions.setExportQuality("720p");
+                  setIsQualityOpen(false);
+                }}
+              >
+                720p (HD)
+              </div>
+              <div
+                className="flex h-7 items-center rounded-sm px-3 text-sm hover:cursor-pointer hover:bg-zinc-800"
+                onClick={() => {
+                  actions.setExportQuality("1080p");
+                  setIsQualityOpen(false);
+                }}
+              >
+                1080p (Full HD) ⭐
+              </div>
+              <div
+                className="flex h-7 items-center rounded-sm px-3 text-sm hover:cursor-pointer hover:bg-zinc-800"
+                onClick={() => {
+                  actions.setExportQuality("4k");
+                  setIsQualityOpen(false);
+                }}
+              >
+                4K (Ultra HD)
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
 
         <div>
           <Button onClick={handleExport} className="w-full">

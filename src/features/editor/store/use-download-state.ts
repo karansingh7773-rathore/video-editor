@@ -14,6 +14,7 @@ interface DownloadState {
   projectId: string;
   exporting: boolean;
   exportType: "json" | "mp4";
+  exportQuality: "720p" | "1080p" | "4k";
   progress: number;
   output?: Output;
   payload?: IDesign;
@@ -23,6 +24,7 @@ interface DownloadState {
     setProjectId: (projectId: string) => void;
     setExporting: (exporting: boolean) => void;
     setExportType: (exportType: "json" | "mp4") => void;
+    setExportQuality: (quality: "720p" | "1080p" | "4k") => void;
     setProgress: (progress: number) => void;
     setState: (state: Partial<DownloadState>) => void;
     setOutput: (output: Output) => void;
@@ -31,10 +33,18 @@ interface DownloadState {
   };
 }
 
+// Quality presets
+const QUALITY_PRESETS = {
+  "720p": { width: 1280, height: 720, bitrate: "3M", crf: 23 },
+  "1080p": { width: 1920, height: 1080, bitrate: "8M", crf: 20 },
+  "4k": { width: 3840, height: 2160, bitrate: "25M", crf: 18 }
+};
+
 export const useDownloadState = create<DownloadState>((set, get) => ({
   projectId: "",
   exporting: false,
   exportType: "mp4",
+  exportQuality: "1080p",
   progress: 0,
   displayProgressModal: false,
   statusMessage: "",
@@ -42,6 +52,7 @@ export const useDownloadState = create<DownloadState>((set, get) => ({
     setProjectId: (projectId) => set({ projectId }),
     setExporting: (exporting) => set({ exporting }),
     setExportType: (exportType) => set({ exportType }),
+    setExportQuality: (quality) => set({ exportQuality: quality }),
     setProgress: (progress) => set({ progress }),
     setState: (state) => set({ ...state }),
     setOutput: (output) => set({ output }),
@@ -51,7 +62,7 @@ export const useDownloadState = create<DownloadState>((set, get) => ({
       try {
         set({ exporting: true, displayProgressModal: true, progress: 0, statusMessage: "Preparing..." });
 
-        const { payload, exportType } = get();
+        const { payload, exportType, exportQuality } = get();
         if (!payload) throw new Error("Payload is not defined");
 
         // For JSON export, just create a downloadable JSON file
@@ -71,83 +82,120 @@ export const useDownloadState = create<DownloadState>((set, get) => ({
         }
 
         // For MP4 export, render using FFmpeg backend
-        set({ progress: 10, statusMessage: "Extracting video info..." });
+        set({ progress: 5, statusMessage: "Extracting timeline data..." });
 
-        const edl = createEditDecisionList(payload);
+        const edl = createEditDecisionList(payload, exportQuality);
 
-        // Find the source video blob URL
-        const videoSegments = edl.segments.filter(s => s.type === "video");
-        if (videoSegments.length === 0) {
-          throw new Error("No video segments found in timeline");
+        // Collect all media (videos and audios)
+        const allMedia = [...edl.videoSegments, ...edl.audioSegments];
+
+        if (allMedia.length === 0) {
+          throw new Error("No media found in timeline");
         }
 
-        const sourceUrl = videoSegments[0].sourceUrl;
+        set({ progress: 10, statusMessage: "Downloading media files..." });
 
-        // Check if it's a blob URL (local file)
-        if (sourceUrl.startsWith("blob:")) {
-          set({ progress: 20, statusMessage: "Fetching video from memory..." });
+        // Download all media files (both blob and remote URLs)
+        const mediaBlobs: { [key: string]: Blob } = {};
+        let downloadedCount = 0;
 
-          // Fetch the blob from the blob URL
-          const response = await fetch(sourceUrl);
-          const videoBlob = await response.blob();
+        for (const segment of allMedia) {
+          try {
+            set({
+              progress: 10 + Math.floor((downloadedCount / allMedia.length) * 30),
+              statusMessage: `Downloading ${segment.type}: ${segment.name || segment.id}...`
+            });
 
-          set({ progress: 40, statusMessage: "Uploading to render server..." });
-
-          // Create FormData with video and edit instructions
-          const formData = new FormData();
-          formData.append("file", videoBlob, "video.mp4");
-          formData.append("edits", JSON.stringify({
-            segments: edl.segments.map(s => ({
-              startTime: (s.trimFrom || 0) / 1000,
-              endTime: (s.trimTo || s.duration) / 1000,
-              speed: s.speed
-            })),
-            settings: {
-              outputFormat: "mp4",
-              removeAudio: false
+            const response = await fetch(segment.sourceUrl);
+            if (response.ok) {
+              const blob = await response.blob();
+              mediaBlobs[segment.id] = blob;
+            } else {
+              console.warn(`Failed to download: ${segment.sourceUrl}`);
             }
-          }));
-
-          set({ progress: 50, statusMessage: "Rendering with FFmpeg..." });
-
-          // Send to HF Space for rendering
-          const renderResponse = await fetch(`${HF_SPACE_URL}/api/video/render`, {
-            method: "POST",
-            body: formData
-          });
-
-          if (!renderResponse.ok) {
-            const errorText = await renderResponse.text();
-            throw new Error(`Render failed: ${errorText}`);
+          } catch (err) {
+            console.warn(`Error downloading ${segment.id}:`, err);
           }
-
-          set({ progress: 90, statusMessage: "Downloading rendered video..." });
-
-          // Get the rendered video
-          const renderedBlob = await renderResponse.blob();
-          const url = URL.createObjectURL(renderedBlob);
-
-          set({
-            progress: 100,
-            exporting: false,
-            statusMessage: "Complete!",
-            output: { url, type: "mp4", blob: renderedBlob }
-          });
-
-        } else {
-          // For remote URLs, just create the EDL JSON for now
-          set({ statusMessage: "Remote URLs require download first. Creating EDL..." });
-          const edlJson = JSON.stringify(edl, null, 2);
-          const blob = new Blob([edlJson], { type: "application/json" });
-          const url = URL.createObjectURL(blob);
-
-          set({
-            progress: 100,
-            exporting: false,
-            statusMessage: "EDL created (download video first for MP4).",
-            output: { url, type: "json", blob }
-          });
+          downloadedCount++;
         }
+
+        if (Object.keys(mediaBlobs).length === 0) {
+          throw new Error("Could not download any media files");
+        }
+
+        set({ progress: 40, statusMessage: "Uploading to render server..." });
+
+        // Create FormData with all media files and edit instructions
+        const formData = new FormData();
+
+        // Add each media file
+        for (const [id, blob] of Object.entries(mediaBlobs)) {
+          const segment = allMedia.find(s => s.id === id);
+          const extension = segment?.type === "audio" ? "mp3" : "mp4";
+          formData.append("files", blob, `${id}.${extension}`);
+        }
+
+        // Add edit instructions with quality settings
+        formData.append("edits", JSON.stringify({
+          videoSegments: edl.videoSegments.map(s => ({
+            id: s.id,
+            filename: `${s.id}.mp4`,
+            startTime: s.startTime / 1000,
+            endTime: s.endTime / 1000,
+            trimFrom: (s.trimFrom || 0) / 1000,
+            trimTo: (s.trimTo || s.duration) / 1000,
+            speed: s.speed,
+            volume: s.volume,
+            opacity: s.opacity
+          })),
+          audioSegments: edl.audioSegments.map(s => ({
+            id: s.id,
+            filename: `${s.id}.mp3`,
+            startTime: s.startTime / 1000,
+            endTime: s.endTime / 1000,
+            trimFrom: (s.trimFrom || 0) / 1000,
+            trimTo: (s.trimTo || s.duration) / 1000,
+            volume: s.volume
+          })),
+          settings: {
+            outputFormat: "mp4",
+            width: QUALITY_PRESETS[exportQuality].width,
+            height: QUALITY_PRESETS[exportQuality].height,
+            bitrate: QUALITY_PRESETS[exportQuality].bitrate,
+            crf: QUALITY_PRESETS[exportQuality].crf,
+            fps: edl.fps || 30,
+            codec: "libx264",
+            audioCodec: "aac",
+            audioBitrate: "192k"
+          }
+        }));
+
+        set({ progress: 50, statusMessage: "Rendering with FFmpeg..." });
+
+        // Send to HF Space for rendering
+        const renderResponse = await fetch(`${HF_SPACE_URL}/api/video/render`, {
+          method: "POST",
+          body: formData
+        });
+
+        if (!renderResponse.ok) {
+          const errorText = await renderResponse.text();
+          console.error("Render error:", errorText);
+          throw new Error(`Render failed: ${errorText}`);
+        }
+
+        set({ progress: 90, statusMessage: "Downloading rendered video..." });
+
+        // Get the rendered video
+        const renderedBlob = await renderResponse.blob();
+        const url = URL.createObjectURL(renderedBlob);
+
+        set({
+          progress: 100,
+          exporting: false,
+          statusMessage: "Complete!",
+          output: { url, type: "mp4", blob: renderedBlob }
+        });
 
       } catch (error) {
         console.error("Export error:", error);
@@ -164,46 +212,68 @@ export const useDownloadState = create<DownloadState>((set, get) => ({
 /**
  * Create an Edit Decision List from the design payload
  */
-function createEditDecisionList(design: IDesign) {
+function createEditDecisionList(design: IDesign, quality: string) {
   const trackItemsMap = design.trackItemsMap || {};
 
-  const segments: Array<{
+  interface MediaSegment {
     id: string;
     type: string;
+    name?: string;
     startTime: number;
     endTime: number;
     duration: number;
     speed: number;
+    volume: number;
+    opacity?: number;
     sourceUrl: string;
     trimFrom?: number;
     trimTo?: number;
-  }> = [];
+  }
+
+  const videoSegments: MediaSegment[] = [];
+  const audioSegments: MediaSegment[] = [];
 
   for (const [id, item] of Object.entries(trackItemsMap as Record<string, any>)) {
+    const baseSegment = {
+      id,
+      name: item.name || id,
+      startTime: item.display?.from || 0,
+      endTime: item.display?.to || 0,
+      duration: (item.display?.to || 0) - (item.display?.from || 0),
+      speed: item.playbackRate || 1,
+      volume: item.details?.volume ?? 100,
+      sourceUrl: item.details?.src || "",
+      trimFrom: item.trim?.from,
+      trimTo: item.trim?.to
+    };
+
     if (item.type === "video") {
-      segments.push({
-        id,
+      videoSegments.push({
+        ...baseSegment,
         type: "video",
-        startTime: item.display?.from || 0,
-        endTime: item.display?.to || 0,
-        duration: (item.display?.to || 0) - (item.display?.from || 0),
-        speed: item.playbackRate || 1,
-        sourceUrl: item.details?.src || "",
-        trimFrom: item.trim?.from,
-        trimTo: item.trim?.to
+        opacity: item.details?.opacity ?? 100
+      });
+    } else if (item.type === "audio") {
+      audioSegments.push({
+        ...baseSegment,
+        type: "audio"
       });
     }
   }
 
-  segments.sort((a, b) => a.startTime - b.startTime);
+  // Sort by start time
+  videoSegments.sort((a, b) => a.startTime - b.startTime);
+  audioSegments.sort((a, b) => a.startTime - b.startTime);
 
   return {
-    version: "1.0",
+    version: "2.0",
     projectId: design.id,
     exportedAt: new Date().toISOString(),
     size: design.size,
     duration: design.duration,
-    fps: 30,
-    segments
+    fps: design.fps || 30,
+    quality,
+    videoSegments,
+    audioSegments
   };
 }
