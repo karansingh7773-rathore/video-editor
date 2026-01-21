@@ -30,6 +30,7 @@ import { ITrackItem } from "@designcombo/types";
 import useLayoutStore from "./store/use-layout-store";
 import ControlItemHorizontal from "./control-item-horizontal";
 import { design } from "./mock";
+import MobileQuickAdd from "./mobile-quick-add";
 
 const stateManager = new StateManager({
 	size: {
@@ -172,6 +173,10 @@ const Editor = ({ tempId, id }: { tempId?: string; id?: string }) => {
 					{/* Mobile menu bar - now positioned above timeline for better reach */}
 					{!isLargeScreen && !trackItem && loaded && <MenuListHorizontal />}
 					{!isLargeScreen && trackItem && <ControlItemHorizontal />}
+					{/* Mobile quick-add bar - shows when there's content in timeline */}
+					{!isLargeScreen && loaded && Object.keys(trackItemsMap).length > 0 && (
+						<MobileQuickAdd hasContent={Object.keys(trackItemsMap).length > 0} />
+					)}
 					<ResizableHandle />
 					<ResizablePanel
 						className="min-h-[50px]"

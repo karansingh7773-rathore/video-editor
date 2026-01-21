@@ -1,10 +1,11 @@
 import useStore from "../store/use-store";
-import useUploadStore from "../store/use-upload-store";
 import { useEffect, useRef, useState } from "react";
 import { Droppable } from "@/components/ui/droppable";
 import { PlusIcon } from "lucide-react";
 import { DroppableArea } from "./droppable";
-import { nanoid } from "nanoid";
+import { dispatch } from "@designcombo/events";
+import { ADD_VIDEO, ADD_IMAGE, ADD_AUDIO } from "@designcombo/state";
+import { generateId } from "@designcombo/timeline";
 
 const SceneEmpty = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -12,7 +13,6 @@ const SceneEmpty = () => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [desiredSize, setDesiredSize] = useState({ width: 0, height: 0 });
   const { size } = useStore();
-  const { addPendingUploads, processUploads } = useUploadStore();
 
   useEffect(() => {
     const container = containerRef.current!;
@@ -37,17 +37,55 @@ const SceneEmpty = () => {
 
     if (files.length === 0) return;
 
-    // Create upload entries for each file
-    const uploads = files.map((file) => ({
-      id: nanoid(),
-      file,
-      status: "pending" as const,
-      progress: 0
-    }));
+    // Directly add files to the timeline (for mobile users who can't access Uploads panel)
+    files.forEach((file) => {
+      const blobUrl = URL.createObjectURL(file);
+      const fileType = file.type.split("/")[0]; // 'video', 'image', 'audio'
 
-    // Add to pending uploads and process them
-    addPendingUploads(uploads);
-    processUploads();
+      if (fileType === "video") {
+        dispatch(ADD_VIDEO, {
+          payload: {
+            id: generateId(),
+            details: {
+              src: blobUrl
+            },
+            metadata: {}
+          },
+          options: {
+            resourceId: "main",
+            scaleMode: "fit"
+          }
+        });
+      } else if (fileType === "image") {
+        dispatch(ADD_IMAGE, {
+          payload: {
+            id: generateId(),
+            type: "image",
+            display: {
+              from: 0,
+              to: 5000
+            },
+            details: {
+              src: blobUrl
+            },
+            metadata: {}
+          },
+          options: {}
+        });
+      } else if (fileType === "audio") {
+        dispatch(ADD_AUDIO, {
+          payload: {
+            id: generateId(),
+            type: "audio",
+            details: {
+              src: blobUrl
+            },
+            metadata: {}
+          },
+          options: {}
+        });
+      }
+    });
   };
 
   // Hidden file input ref for click-to-upload

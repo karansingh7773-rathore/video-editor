@@ -254,8 +254,41 @@ function createEditDecisionList(design: IDesign, quality: string) {
     trimTo?: number;
   }
 
+  interface TextSegment {
+    id: string;
+    type: "text";
+    text: string;
+    startTime: number;   // ms
+    endTime: number;     // ms
+    duration: number;    // ms
+    // Position (relative to canvas, 0-1 normalized, then converted to pixels)
+    x: number;           // pixels from left
+    y: number;           // pixels from top
+    width: number;       // text box width
+    // Font properties
+    fontSize: number;
+    fontFamily: string;
+    fontColor: string;
+    // Text styling
+    textAlign: string;   // left, center, right
+    // Border/outline
+    borderWidth: number;
+    borderColor: string;
+    // Shadow
+    shadowColor: string;
+    shadowX: number;
+    shadowY: number;
+    shadowBlur: number;
+    // Animation (for FFmpeg expression)
+    animation?: {
+      type: "none" | "fade-in" | "fade-out" | "slide-up" | "slide-down" | "scale";
+      duration: number; // ms
+    };
+  }
+
   const videoSegments: MediaSegment[] = [];
   const audioSegments: MediaSegment[] = [];
+  const textSegments: TextSegment[] = [];
 
   for (const [id, item] of Object.entries(trackItemsMap as Record<string, any>)) {
     const baseSegment = {
@@ -282,12 +315,53 @@ function createEditDecisionList(design: IDesign, quality: string) {
         ...baseSegment,
         type: "audio"
       });
+    } else if (item.type === "text") {
+      // Extract text segment with all properties for FFmpeg drawtext
+      const details = item.details || {};
+      const boxShadow = details.boxShadow || {};
+
+      // Get position from transform or default to center
+      const transform = item.transform || {};
+      const canvasWidth = design.size?.width || 1080;
+      const canvasHeight = design.size?.height || 1920;
+
+      // Calculate actual pixel position
+      // x and y in the design are relative to center, we convert to top-left origin for FFmpeg
+      const x = (transform.x ?? 0) + (canvasWidth / 2) - ((details.width || 600) / 2);
+      const y = (transform.y ?? 0) + (canvasHeight / 2) - ((details.fontSize || 48) / 2);
+
+      textSegments.push({
+        id,
+        type: "text",
+        text: details.text || "Text",
+        startTime: item.display?.from || 0,
+        endTime: item.display?.to || 0,
+        duration: (item.display?.to || 0) - (item.display?.from || 0),
+        x: Math.max(0, x),
+        y: Math.max(0, y),
+        width: details.width || 600,
+        fontSize: details.fontSize || 48,
+        fontFamily: details.fontFamily || "Arial",
+        fontColor: details.color || "#ffffff",
+        textAlign: details.textAlign || "center",
+        borderWidth: details.borderWidth || 0,
+        borderColor: details.borderColor || "#000000",
+        shadowColor: boxShadow.color || "#000000",
+        shadowX: boxShadow.x || 0,
+        shadowY: boxShadow.y || 0,
+        shadowBlur: boxShadow.blur || 0,
+        animation: item.animation ? {
+          type: item.animation.type || "none",
+          duration: item.animation.duration || 500
+        } : undefined
+      });
     }
   }
 
   // Sort by start time
   videoSegments.sort((a, b) => a.startTime - b.startTime);
   audioSegments.sort((a, b) => a.startTime - b.startTime);
+  textSegments.sort((a, b) => a.startTime - b.startTime);
 
   return {
     version: "2.0",
@@ -298,6 +372,7 @@ function createEditDecisionList(design: IDesign, quality: string) {
     fps: design.fps || 30,
     quality,
     videoSegments,
-    audioSegments
+    audioSegments,
+    textSegments
   };
 }
